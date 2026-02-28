@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: student-portal-ingress
+  namespace: student-portal
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: arsene-student-portal.duckdns.org
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: student-portal-backend
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: student-portal-frontend
+                port:
+                  number: 80

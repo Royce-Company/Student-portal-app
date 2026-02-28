@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: student-portal-backend
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: student-portal-backend
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      app: student-portal-backend
+  template:
+    metadata:
+      labels:
+        app: student-portal-backend
+    spec:
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.backend.env.port }}
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.backend.env.nodeEnv | quote }}
+
+            - name: PORT
+              value: {{ .Values.backend.env.port | quote }}
+
+            - name: DB_HOST
+              value: {{ .Values.backend.env.dbHost | quote }}
+
+            - name: DB_PORT
+              value: {{ .Values.backend.env.dbPort | quote }}
+
+            - name: DB_USER
+              value: {{ .Values.backend.env.dbUser | quote }}
+
+            - name: DB_NAME
+              value: {{ .Values.backend.env.dbName | quote }}
+
+            # NEW: JWT_EXPIRE comes straight from values.yaml (15d)
+            - name: JWT_EXPIRE
+              value: {{ .Values.backend.env.jwtExpire | quote }}
+
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: student-portal-secrets
+                  key: dbPassword
+
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: student-portal-secrets
+                  key: jwtSecret

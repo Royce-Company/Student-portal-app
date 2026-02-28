@@ -1,0 +1,145 @@
+name: CI/CD - Student Portal
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature-branch/*'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-test-push-deploy:
+    # Avoid infinite loop when we push [skip ci] commit
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+
+    runs-on: self-hosted        # your EC2 GitHub runner
+
+    env:
+      DOCKERHUB_USERNAME: arsenet10
+      BACKEND_IMAGE: arsenet10/student-portal-backend
+      FRONTEND_IMAGE: arsenet10/student-portal-frontend
+      IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+      # 1. Checkout repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Needed so we can push changes back (values.yaml update)
+          persist-credentials: true
+          fetch-depth: 0
+
+      # 2. Backend unit tests
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "package-lock.json found, running npm ci..."
+            npm ci
+          else
+            echo "No package-lock.json found, running npm install..."
+            npm install
+          fi
+
+      - name: Run backend tests
+        working-directory: ./backend
+        run: npm test
+
+      # 3. CLEAN DOCKER ENVIRONMENT BEFORE BUILDING
+      - name: Stop all running containers
+        run: |
+          docker stop $(docker ps -aq) || true
+
+      - name: Remove all containers
+        run: |
+          docker rm $(docker ps -aq) || true
+
+      - name: Remove all Docker images
+        run: |
+          docker rmi -f $(docker images -aq) || true
+
+      # 4. Login to Docker Hub
+      - name: Docker Hub Login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 5. Build & push BACKEND image
+      - name: Build backend image
+        run: |
+          docker build \
+            -t $BACKEND_IMAGE:latest \
+            -t $BACKEND_IMAGE:${{ github.sha }} \
+            ./backend
+
+      - name: Push backend image
+        run: |
+          docker push $BACKEND_IMAGE:latest
+          docker push $BACKEND_IMAGE:${{ github.sha }}
+
+      # 6. Build & push FRONTEND image
+      - name: Build frontend image
+        run: |
+          docker build \
+            -t $FRONTEND_IMAGE:latest \
+            -t $FRONTEND_IMAGE:${{ github.sha }} \
+            ./frontend
+
+      - name: Push frontend image
+        run: |
+          docker push $FRONTEND_IMAGE:latest
+          docker push $FRONTEND_IMAGE:${{ github.sha }}
+
+      # 7. Install yq (single binary)
+      - name: Install yq
+        run: |
+          YQ_VERSION=v4.44.3
+          wget https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64 -O yq
+          chmod +x yq
+          ./yq --version
+
+      # 8. Update Helm values.yaml with the new image tags
+      #    👉 Adjust the path to your values.yaml if needed
+      - name: Update Helm chart image tags
+        run: |
+          echo "Using IMAGE_TAG=${IMAGE_TAG}"
+          ./yq -i ".backend.image.tag = \"${IMAGE_TAG}\"" helm-charts/student-portal/values.yaml
+          ./yq -i ".frontend.image.tag = \"${IMAGE_TAG}\"" helm-charts/student-portal/values.yaml
+          echo "Updated Helm values.yaml:"
+          cat helm-charts/student-portal/values.yaml
+
+      # 9. Commit & push updated Helm values back to the same branch
+      - name: Commit and push updated Helm values
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git status
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add helm-charts/student-portal/values.yaml
+          git commit -m "chore: update Helm image tags to ${IMAGE_TAG} [skip ci]"
+          git push origin "${GITHUB_REF##refs/heads/}"
+
+      # 10. Deploy with Docker Compose (still only local, not Helm)
+      - name: Deploy with Docker Compose
+        # you can uncomment below to restrict to main only
+        # if: github.ref == 'refs/heads/main'
+        working-directory: /home/ubuntu/Student-portal-app
+        run: |
+          # docker pull $BACKEND_IMAGE:${{ github.sha }}
+          # docker pull $FRONTEND_IMAGE:${{ github.sha }}
+          docker-compose up -d

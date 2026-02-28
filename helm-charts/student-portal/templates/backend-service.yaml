@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: student-portal-backend
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: student-portal-backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.backend.env.port }}

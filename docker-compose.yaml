@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   backend:
-    image: student-portal-backend-image:v1
+    image: arsenet10/student-portal-backend:latest
     container_name: student-portal-backend
     ports:
       - "5000:5000"
@@ -23,11 +23,11 @@ services:
       JWT_EXPIRE: 15d
 
       # CORS (frontend URL)
-      FRONTEND_URL: http://3.148.170.182:3000
+      FRONTEND_URL: http://18.188.211.101:3000
     restart: unless-stopped
 
   frontend:
-    image: student-portal-frontend-image:v1
+    image: arsenet10/student-portal-frontend:latest
     container_name: student-portal-frontend
     ports:
       - "3000:3000"
