@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  backend:
+    image: student-portal-backend-image:v1
+    container_name: student-portal-backend
+    ports:
+      - "5000:5000"
+    environment:
+      # App
+      PORT: 5000
+      NODE_ENV: development
+
+      # MySQL RDS
+      DB_HOST: portal-db.cwhdtq5zkyxh.us-east-2.rds.amazonaws.com
+      DB_PORT: 3306
+      DB_USER: admin
+      DB_PASSWORD: admin12345
+      DB_NAME: student_app
+
+      # JWT
+      JWT_SECRET: houston2016
+      JWT_EXPIRE: 15d
+
+      # CORS (frontend URL)
+      FRONTEND_URL: http://3.148.170.182:3000
+    restart: unless-stopped
+
+  frontend:
+    image: student-portal-frontend-image:v1
+    container_name: student-portal-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped

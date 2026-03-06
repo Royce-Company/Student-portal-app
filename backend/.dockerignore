@@ -1,0 +1,33 @@
+# Ignore node modules
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Logs
+logs
+*.log
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Git repository
+.git
+.gitignore
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Docker files
+Dockerfile
+docker-compose.yml
+
+# Build artifacts
+dist/
+build/
+coverage/
+tmp/
+*.swp
+*~
