@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - 'feature-branch/*'
-      - 'feature/*'
+      - 'feature/larouse'
   pull_request:
     branches:
       - main
