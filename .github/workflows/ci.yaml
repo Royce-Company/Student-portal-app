@@ -1,0 +1,41 @@
+name: CI Pipeline
+
+# Trigger workflow on push or pull request events
+on:
+  push:
+    branches:
+      - main
+      - features/*
+  pull_request:
+    branches:
+      - main
+
+# Define the jobs
+jobs:
+  build:
+    runs-on: ubuntu-latest  # Use the latest Ubuntu runner
+    
+    strategy:
+      matrix:
+        node-version: ['14', '16', '18']
+    
+    steps:
+      - uses: actions/checkout@v3  # Checkout the repository code
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+      
+      - name: Install backend dependencies
+        run: npm install
+        working-directory: ./backend
+      
+      - name: Run backend tests
+        run: npm test
+        working-directory: ./backend
+      
+      - name: Lint backend code
+        run: npm run lint
+        working-directory: ./backend
+        continue-on-error: true
