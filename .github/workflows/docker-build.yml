@@ -1,0 +1,155 @@
+name: Build and Push to ECR
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/docker*.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-2
+  REGISTRY: public.ecr.aws
+  IMAGE_NAME: student-portal
+
+jobs:
+  build-backend:
+    name: Build Backend Image
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: private
+
+      - name: Get Git metadata
+        id: meta
+        run: |
+          echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date -u +'%Y%m%d')" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/student-portal/backend:${{ steps.meta.outputs.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/student-portal/backend:${{ steps.meta.outputs.branch }}-latest
+            ${{ steps.login-ecr.outputs.registry }}/student-portal/backend:${{ steps.meta.outputs.date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_ENV=${{ steps.meta.outputs.branch == 'main' && 'production' || 'development' }}
+
+      - name: Image digest
+        run: echo ${{ steps.meta.outputs.sha }}
+
+  build-frontend:
+    name: Build Frontend Image
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: private
+
+      - name: Get Git metadata
+        id: meta
+        run: |
+          echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date -u +'%Y%m%d')" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/student-portal/frontend:${{ steps.meta.outputs.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/student-portal/frontend:${{ steps.meta.outputs.branch }}-latest
+            ${{ steps.login-ecr.outputs.registry }}/student-portal/frontend:${{ steps.meta.outputs.date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: echo ${{ steps.meta.outputs.sha }}
+
+  image-scan:
+    name: Scan Images for Vulnerabilities
+    needs: [build-backend, build-frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      security-events: write
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run ECR image scan
+        run: |
+          BACKEND_IMAGE="${REGISTRY}/${IMAGE_NAME}/backend:$(git rev-parse --short HEAD)"
+          FRONTEND_IMAGE="${REGISTRY}/${IMAGE_NAME}/frontend:$(git rev-parse --short HEAD)"
+          
+          echo "Scanning backend image: ${BACKEND_IMAGE}"
+          aws ecr start-image-scan \
+            --repository-name student-portal/backend \
+            --image-id imageTag=$(git rev-parse --short HEAD)
+            
+          echo "Scanning frontend image: ${FRONTEND_IMAGE}"
+          aws ecr start-image-scan \
+            --repository-name student-portal/frontend \
+            --image-id imageTag=$(git rev-parse --short HEAD)

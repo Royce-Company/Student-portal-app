@@ -5,8 +5,14 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     app: student-portal-backend
+    version: v1
 spec:
   replicas: {{ .Values.backend.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: student-portal-backend
@@ -14,46 +20,220 @@ spec:
     metadata:
       labels:
         app: student-portal-backend
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
+      serviceAccountName: student-portal-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      # Pod Anti-Affinity for high availability
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - student-portal-backend
+                topologyKey: kubernetes.io/hostname
+      
+      # Image pull secrets for private ECR
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      
       containers:
         - name: backend
-          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          image: "{{ .Values.backend.image.registry }}/{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          
+          # Container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          
           ports:
-            - containerPort: {{ .Values.backend.env.port }}
+            - name: http
+              containerPort: {{ .Values.backend.env.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          
+          # Environment variables
           env:
             - name: NODE_ENV
               value: {{ .Values.backend.env.nodeEnv | quote }}
-
+            
             - name: PORT
               value: {{ .Values.backend.env.port | quote }}
-
+            
+            - name: LOG_LEVEL
+              value: {{ .Values.backend.env.logLevel | quote }}
+            
             - name: DB_HOST
               value: {{ .Values.backend.env.dbHost | quote }}
-
+            
             - name: DB_PORT
               value: {{ .Values.backend.env.dbPort | quote }}
-
+            
             - name: DB_USER
               value: {{ .Values.backend.env.dbUser | quote }}
-
+            
             - name: DB_NAME
               value: {{ .Values.backend.env.dbName | quote }}
-
-            # NEW: JWT_EXPIRE comes straight from values.yaml (15d)
+            
             - name: JWT_EXPIRE
               value: {{ .Values.backend.env.jwtExpire | quote }}
-
+            
+            - name: CORS_ENABLED
+              value: {{ .Values.backend.env.corsEnabled | quote }}
+            
+            - name: API_TIMEOUT
+              value: {{ .Values.backend.env.apiTimeout | quote }}
+            
+            - name: FRONTEND_URL
+              value: {{ printf "https://%s" .Values.global.host | quote }}
+            
+            # Secrets from AWS Secrets Manager (injected via External Secrets Operator)
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: student-portal-secrets
                   key: DB_PASSWORD
-
+            
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: student-portal-secrets
                   key: JWT_SECRET
-            - name: FRONTEND_URL
-              value: "https://{{ .Values.global.host }}"
+          
+          # Resource requests and limits
+          resources:
+            requests:
+              cpu: {{ .Values.backend.resources.requests.cpu | quote }}
+              memory: {{ .Values.backend.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.backend.resources.limits.cpu | quote }}
+              memory: {{ .Values.backend.resources.limits.memory | quote }}
+          
+          # Liveness Probe - restarts container if unhealthy
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.backend.livenessProbe.httpGet.path }}
+              port: {{ .Values.backend.livenessProbe.httpGet.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.backend.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.backend.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.backend.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.backend.livenessProbe.failureThreshold }}
+          
+          # Readiness Probe - determines if pod should receive traffic
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.backend.readinessProbe.httpGet.path }}
+              port: {{ .Values.backend.readinessProbe.httpGet.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.backend.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.backend.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.backend.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.backend.readinessProbe.failureThreshold }}
+          
+          # Startup Probe - for slow-starting applications
+          startupProbe:
+            httpGet:
+              path: {{ .Values.backend.livenessProbe.httpGet.path }}
+              port: {{ .Values.backend.livenessProbe.httpGet.port }}
+            failureThreshold: 30
+            periodSeconds: 10
+          
+          # Volume mounts
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+      
+      # Volumes
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      
+      # Graceful shutdown
+      terminationGracePeriodSeconds: 30
+      
+      # Restart policy
+      restartPolicy: Always
+
+---
+# Horizontal Pod Autoscaler for Backend
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: student-portal-backend-hpa
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: student-portal-backend
+  minReplicas: {{ .Values.backend.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.backend.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.backend.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.backend.autoscaling.targetMemoryUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+
+---
+# Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: student-portal-backend-pdb
+  namespace: {{ .Values.namespace }}
+spec:
+  minAvailable: {{ .Values.backend.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app: student-portal-backend

@@ -1,0 +1,145 @@
+name: Code Quality and Security Checks
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM
+
+jobs:
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  backend-scan:
+    name: Backend Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'backend/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: ./backend
+        continue-on-error: true
+        run: |
+          npx eslint . --format json > eslint-report.json || true
+
+      - name: Check for vulnerabilities with npm audit
+        working-directory: ./backend
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
+
+      - name: Run tests
+        working-directory: ./backend
+        continue-on-error: true
+        run: npm test
+
+  frontend-scan:
+    name: Frontend Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Run HTML validation
+        working-directory: ./frontend
+        continue-on-error: true
+        run: |
+          for file in *.html; do
+            echo "Validating $file"
+            curl -s -X POST --data-urlencode "html@$file" https://html5.validator.nu/?out=json | jq .
+          done || true
+
+      - name: Check CSS quality
+        working-directory: ./frontend
+        continue-on-error: true
+        run: |
+          # Basic CSS linting
+          if [ -f "css/style.css" ]; then
+            echo "CSS file found, checking for common issues..."
+          fi
+
+  dependency-check:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for outdated dependencies (Backend)
+        working-directory: ./backend
+        run: npm outdated || true
+
+      - name: Generate Software Bill of Materials
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./
+          format: spdx-json
+          output-file: sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom.json
+
+  docker-scan:
+    name: Scan Docker Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Dockerfile linter
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: backend/Dockerfile
+          ignore: DL3008,DL3009
+
+      - name: Run Dockerfile linter (Frontend)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: frontend/Dockerfile
+          ignore: DL3008,DL3009

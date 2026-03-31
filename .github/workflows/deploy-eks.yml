@@ -1,0 +1,151 @@
+name: Deploy to EKS
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_run:
+    workflows: ["Build and Push to ECR"]
+    types:
+      - completed
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  AWS_REGION: us-east-2
+  HELM_VERSION: v3.13.0
+
+jobs:
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "namespace=student-portal" >> $GITHUB_OUTPUT
+          else
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "namespace=student-portal-staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name student-portal-${{ steps.env.outputs.environment }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Create namespace
+        run: |
+          kubectl create namespace ${{ steps.env.outputs.namespace }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Setup secret for database
+        run: |
+          kubectl create secret generic student-portal-secrets \
+            --from-literal=db-password=${{ secrets.DB_PASSWORD }} \
+            --from-literal=jwt-secret=${{ secrets.JWT_SECRET }} \
+            -n ${{ steps.env.outputs.namespace }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Get Docker image tags
+        id: docker-tags
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          echo "backend-tag=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+          echo "frontend-tag=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Deploy Helm chart
+        run: |
+          helm upgrade --install student-portal ./helm-charts/student-portal \
+            --namespace ${{ steps.env.outputs.namespace }} \
+            --values ./helm-charts/student-portal/values.yaml \
+            --set backend.image.tag=${{ steps.docker-tags.outputs.backend-tag }} \
+            --set frontend.image.tag=${{ steps.docker-tags.outputs.frontend-tag }} \
+            --set environment=${{ steps.env.outputs.environment }} \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/student-portal-backend \
+            -n ${{ steps.env.outputs.namespace }} \
+            --timeout=5m
+          
+          kubectl rollout status deployment/student-portal-frontend \
+            -n ${{ steps.env.outputs.namespace }} \
+            --timeout=5m
+
+      - name: Get service information
+        run: |
+          echo "Deployment Summary:"
+          kubectl get deployments -n ${{ steps.env.outputs.namespace }}
+          
+          echo -e "\nServices:"
+          kubectl get svc -n ${{ steps.env.outputs.namespace }}
+          
+          echo -e "\nPods:"
+          kubectl get pods -n ${{ steps.env.outputs.namespace }}
+
+      - name: Run smoke tests
+        run: |
+          # Wait for service to be ready
+          BACKEND_LB=$(kubectl get svc student-portal-backend -n ${{ steps.env.outputs.namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          
+          if [ -z "$BACKEND_LB" ]; then
+            echo "Backend service not yet assigned a load balancer, skipping smoke tests"
+            exit 0
+          fi
+          
+          echo "Testing backend at: http://${BACKEND_LB}:5000"
+          
+          for i in {1..30}; do
+            if curl -f http://${BACKEND_LB}:5000/health >/dev/null 2>&1; then
+              echo "Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i: Waiting for service to be healthy..."
+            sleep 10
+          done
+          
+          echo "Service did not become healthy in time"
+          exit 1
+
+      - name: Send deployment notification
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Deployment to ${{ steps.env.outputs.environment }} ${{ job.status }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+          fields: repo,message,commit,author

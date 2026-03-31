@@ -1,53 +1,452 @@
-# 🎓 Student Portal - Full Stack Application
+# 🎓 Student Portal - Production-Ready DevOps Platform on AWS EKS
 
-A modern, full-stack student management system built with Node.js, Express, MySQL, and vanilla JavaScript. Features a beautiful dark-themed UI with JWT authentication, role-based access control, and a RESTful API.
+A modern, full-stack student management system built with Node.js, Express, MySQL, and vanilla JavaScript. Production-ready deployment on AWS EKS with comprehensive CI/CD, monitoring, and infrastructure automation using Terraform.
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)
+![Terraform](https://img.shields.io/badge/terraform-%3E%3D1.5.0-purple.svg)
+![Kubernetes](https://img.shields.io/badge/kubernetes-%3E%3D1.26-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
 
+## 📋 Table of Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Deployment](#deployment)
+- [Infrastructure](#infrastructure)
+- [Monitoring](#monitoring)
+- [CI/CD](#cicd)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## ✨ Features
 
-### Frontend
+### Application Features
 - 🎨 Modern dark-themed UI with glassmorphism effects
 - 🔐 Secure JWT-based authentication
 - 👤 User profile management
 - 📊 Interactive dashboard with statistics
 - 🎯 Role-based access control (Student, Teacher, Admin)
 - 📱 Fully responsive design
-- ⚡ Smooth animations and transitions
-- 🎭 Beautiful loading states and error handling
 
-### Backend
-- 🚀 RESTful API with Express.js
-- 🗄️ MySQL database with connection pooling
-- 🔒 JWT token authentication
-- 🛡️ Password hashing with bcrypt
-- ✅ Input validation with express-validator
-- 🎯 Role-based authorization middleware
-- 📝 Comprehensive error handling
-- 🔍 CORS enabled for cross-origin requests
+### DevOps & Infrastructure
+- ☁️ **AWS EKS**: Enterprise-grade Kubernetes cluster
+- 🏗️ **Terraform**: Complete Infrastructure as Code
+- 📦 **Docker**: Containerized backend and frontend
+- 🚀 **CI/CD**: Automated GitHub Actions pipelines
+- 📊 **Monitoring**: Prometheus, Grafana, Loki, Tempo
+- 🔒 **Security**: Network policies, RBAC, secrets management
+- 🛡️ **Backups**: Automated RDS backups and recovery
+- 🔄 **Auto-scaling**: Horizontal and vertical scaling
 
-## 📋 Prerequisites
+## 🏗️ Architecture
 
-Before you begin, ensure you have the following installed:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    GitHub Actions CI/CD                      │
+├─────────────────────────────────────────────────────────────┤
+│  Docker Build → ECR Push → Helm Deploy → Integration Tests   │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+        ┌────────────────┴────────────────┐
+        │                                 │
+┌───────▼─────────┐          ┌───────────▼──────────┐
+│   AWS EKS       │          │   AWS RDS MySQL      │
+│  ┌───────────┐  │          │  ┌─────────────────┐ │
+│  │  Backend  │  │          │  │  student_app    │ │
+│  │ (Replicas)│  │          │  │  (Multi-AZ)     │ │
+│  └───────────┘  │          │  └─────────────────┘ │
+│  ┌───────────┐  │          │  ┌─────────────────┐ │
+│  │ Frontend  │  │          │  │  Backups (30d)  │ │
+│  │ (Replicas)│  │          │  └─────────────────┘ │
+│  └───────────┘  │          └──────────────────────┘
+│  ┌───────────┐  │
+│  │ Ingress   │  │
+│  │  + TLS    │  │
+│  └───────────┘  │
+└────────────────┘
+        │
+    ┌───┴────────────────────────────────┐
+    │                                    │
+┌───▼──────────────┐          ┌──────────▼──────────┐
+│ Monitoring Stack │          │  CloudWatch Logs    │
+│ ┌──────────────┐ │          │ ┌─────────────────┐ │
+│ │ Prometheus   │ │          │ │ Pod Logs        │ │
+│ │ Grafana      │ │          │ │ EKS Logs        │ │
+│ │ Loki         │ │          │ │ RDS Logs        │ │
+│ │ AlertManager │ │          │ └─────────────────┘ │
+│ └──────────────┘ │          └─────────────────────┘
+└──────────────────┘
+```
 
-- **Node.js** (v14.0.0 or higher) - [Download](https://nodejs.org/)
-- **MySQL** (v5.7 or higher) - [Download](https://dev.mysql.com/downloads/)
-- **Git** - [Download](https://git-scm.com/)
+## 📦 Prerequisites
 
-## 🚀 Quick Start
+### Required
+- AWS account with appropriate permissions
+- [Terraform](https://www.terraform.io/downloads) v1.5.0+
+- [AWS CLI](https://aws.amazon.com/cli/) v2
+- [kubectl](https://kubernetes.io/docs/tasks/tools/) v1.26+
+- [Helm](https://helm.sh/docs/intro/install/) v3.0+
+- [Git](https://git-scm.com/)
+- [Docker](https://www.docker.com/) (for local development)
 
-### 1. Clone the Repository
+### AWS Requirements
+- VPC and subnets configured
+- IAM permissions for EKS, RDS, ECR, S3
+- Route53 hosted zone for domain
+- Certificate setup for HTTPS
+
+### GitHub Requirements
+- GitHub repository
+- GitHub Actions enabled
+- OIDC configured for AWS integration
+
+## 🚀 Quick Start (Local Development)
+
+### 1. Clone Repository
 
 ```bash
 git clone https://github.com/yourusername/student-portal.git
 cd student-portal
 ```
 
-### 2. Database Setup
+### 2. Backend Setup
 
-**Start MySQL and create the database:**
+```bash
+cd backend
+npm install
+cp .env.example .env
+
+# Update .env with your settings
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_password
+DB_NAME=student_app
+JWT_SECRET=your_jwt_secret
+
+npm run dev
+```
+
+### 3. Frontend Setup
+
+```bash
+cd frontend
+# Frontend runs on http://localhost:3000
+```
+
+### 4. Docker Compose (All Services)
+
+```bash
+docker-compose up -d
+
+# Access:
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:5000
+```
+
+## 🌐 Deployment
+
+### Production Deployment
+
+Follow the [Production Deployment Guide](./PRODUCTION_DEPLOYMENT.md) for complete step-by-step instructions.
+
+**Quick Steps:**
+
+```bash
+# 1. Deploy infrastructure
+cd terraform/environments/production
+terraform init
+terraform apply -var-file=terraform.tfvars
+
+# 2. Deploy application
+helm install student-portal ./helm-charts/student-portal \
+  --namespace student-portal \
+  --create-namespace
+
+# 3. Verify deployment
+kubectl get pods -n student-portal
+kubectl get svc -n student-portal
+```
+
+### Staging Deployment
+
+```bash
+cd terraform/environments/staging
+terraform init
+terraform apply -var-file=terraform.tfvars
+```
+
+## 🏗️ Infrastructure
+
+### Terraform
+
+Complete Infrastructure as Code for AWS EKS, RDS, VPC, and more.
+
+```bash
+# Directory structure
+terraform/
+├── main.tf              # Main resources
+├── variables.tf         # Input variables
+├── outputs.tf           # Output values
+├── versions.tf          # Provider versions
+├── modules/
+│   ├── networking/      # VPC, subnets, security groups
+│   ├── eks/            # EKS cluster and node groups
+│   ├── rds/            # RDS MySQL database
+│   ├── iam/            # IAM roles and policies
+│   └── ecr/            # ECR repositories
+└── environments/
+    ├── production/     # Production configuration
+    └── staging/        # Staging configuration
+```
+
+**See [Terraform Documentation](./terraform/README.md) for details**
+
+### Kubernetes & Helm
+
+Production-ready Helm charts with:
+- Auto-scaling (HPA)
+- Health checks (liveness, readiness, startup probes)
+- Resource limits and requests
+- Network policies
+- RBAC
+- Pod Disruption Budgets
+
+```bash
+helm-charts/
+└── student-portal/
+    ├── Chart.yaml
+    ├── values.yaml               # Production values
+    └── templates/
+        ├── namespace.yaml        # RBAC and security
+        ├── backend-deployment.yaml
+        ├── frontend-deployment.yaml
+        ├── ingress.yaml         # TLS enabled
+        ├── servicemonitor.yaml  # Prometheus
+        └── networkpolicy.yaml   # Security
+```
+
+**See [Helm Values](./helm-charts/student-portal/values.yaml) for all configuration options**
+
+## 🚀 CI/CD
+
+### GitHub Actions Workflows
+
+Automated pipelines for building, testing, and deploying:
+
+1. **Docker Build** (`.github/workflows/docker-build.yml`)
+   - Build and push images to ECR
+   - Scan images for vulnerabilities
+   - Multi-stage Docker builds
+
+2. **Deploy to EKS** (`.github/workflows/deploy-eks.yml`)
+   - Automated Helm deployments
+   - Rolling updates
+   - Smoke tests
+   - Slack notifications
+
+3. **Terraform CI/CD** (`.github/workflows/terraform.yml`)
+   - Plan and apply infrastructure changes
+   - State locking
+   - Plan artifacts
+
+4. **Code Quality** (`.github/workflows/code-quality.yml`)
+   - Trivy security scanning
+   - ESLint and npm audit
+   - Dockerfile linting
+   - SBOM generation
+
+5. **Integration Tests** (`.github/workflows/integration-tests.yml`)
+   - Backend API tests
+   - Frontend validation
+   - Database connectivity
+
+**See [Workflows Setup Guide](./.github/WORKFLOWS_SETUP.md) for configuration**
+
+## 📊 Monitoring
+
+### Stack Components
+
+- **Prometheus**: Metrics collection
+- **Grafana**: Visualization dashboards
+- **Loki**: Log aggregation
+- **Tempo**: Distributed tracing
+- **AlertManager**: Alert routing
+- **CloudWatch**: AWS native monitoring
+
+### Key Metrics
+
+- Request rate, latency, error rate
+- CPU and memory utilization
+- Database connections and performance
+- Pod restart rates
+- Node capacity
+
+**See [Monitoring Setup Guide](./MONITORING_SETUP.md) for installation and configuration**
+
+## 🔒 Security
+
+### Implemented Security Measures
+
+- ✅ Network policies for pod-to-pod communication
+- ✅ RBAC (Role-Based Access Control)
+- ✅ Pod Security Policies
+- ✅ Secrets management with AWS Secrets Manager
+- ✅ TLS/SSL encryption in transit
+- ✅ KMS encryption for RDS
+- ✅ Container image scanning with Trivy
+- ✅ IAM roles for service accounts (IRSA)
+- ✅ VPC security groups
+- ✅ API rate limiting
+
+## 📚 Documentation
+
+- [Production Deployment Guide](./PRODUCTION_DEPLOYMENT.md) - Complete production setup
+- [Terraform Documentation](./terraform/README.md) - Infrastructure as Code
+- [Monitoring Setup](./MONITORING_SETUP.md) - Observability stack
+- [GitHub Actions Setup](./.github/WORKFLOWS_SETUP.md) - CI/CD pipelines
+- [Architecture Decisions](./docs/ARCHITECTURE.md) - Design rationale
+
+## 🛠️ Development
+
+### Backend Development
+
+```bash
+cd backend
+npm install
+npm run dev    # Start with hot reload
+npm test       # Run tests
+npm run lint   # ESLint
+```
+
+### Frontend Development
+
+```bash
+# Edit files in frontend/ directory
+# Live in browser at http://localhost:3000
+```
+
+### Building Docker Images
+
+```bash
+# Backend
+docker build -f backend/Dockerfile -t student-portal-backend:latest ./backend
+
+# Frontend
+docker build -f frontend/Dockerfile -t student-portal-frontend:latest ./frontend
+```
+
+## 📈 Performance Optimization
+
+### Current Optimizations
+- Multi-replica deployments with load balancing
+- Horizontal Pod Autoscaler (HPA)
+- Resource limits and requests
+- Connection pooling for database
+- CDN ready (CloudFront integration)
+- Layer caching in Docker builds
+
+### Scaling Strategy
+
+```bash
+# Manual scaling
+kubectl scale deployment student-portal-backend \
+  -n student-portal \
+  --replicas=5
+
+# Check HPA status
+kubectl get hpa -n student-portal
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **Pod CrashLoopBackOff**
+   ```bash
+   kubectl describe pod <pod-name> -n student-portal
+   kubectl logs <pod-name> -n student-portal
+   ```
+
+2. **Database Connection Error**
+   ```bash
+   # Check RDS security groups
+   aws ec2 describe-security-groups --group-ids <RDS-SG>
+   
+   # Test connectivity
+   kubectl run mysql-test --image=mysql:8.0 -it --rm \
+     -- mysql -h<RDS-ENDPOINT> -u admin -p
+   ```
+
+3. **Ingress Not Working**
+   ```bash
+   kubectl get ingress -n student-portal
+   kubectl describe ingress -n student-portal
+   kubectl logs -n ingress-nginx deployment/nginx-ingress
+   ```
+
+See [Troubleshooting Guide](./PRODUCTION_DEPLOYMENT.md#troubleshooting) for more solutions.
+
+## 💰 Cost Estimation
+
+### Monthly Costs (Approximate - US East 2)
+
+| Component | Quantity | Cost |
+|-----------|----------|------|
+| EKS Cluster | 1 | $73 |
+| EC2 Instances (t3.medium) | 3 | $90 |
+| RDS MySQL (db.t3.small) | 1 | $40 |
+| Data Transfer | 100GB | $9 |
+| Load Balancer | 1 | $20 |
+| **Total** | | **~$232/month** |
+
+*Prices vary by region and usage. For accurate estimates, use AWS Pricing Calculator.*
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
+
+### Development Workflow
+
+1. Make changes in feature branch
+2. Run tests: `npm test`
+3. Lint code: `npm run lint`
+4. Create PR with description
+5. CI/CD runs automatically
+6. Wait for approval and merge
+7. Deployment happens automatically
+
+## 📄 License
+
+This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+
+## 📞 Support
+
+For issues, questions, or suggestions:
+
+1. Check [Troubleshooting Guide](./PRODUCTION_DEPLOYMENT.md#troubleshooting)
+2. Open a [GitHub Issue](../../issues)
+3. Contact the DevOps team
+
+## 🔗 Useful Links
+
+- [AWS EKS Documentation](https://docs.aws.amazon.com/eks/)
+- [Kubernetes Documentation](https://kubernetes.io/docs/)
+- [Helm Documentation](https://helm.sh/docs/)
+- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest)
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+
+---
+
+**Last Updated**: March 30, 2026  
+**Status**: Production Ready ✅  
+**Maintained By**: DevOps Team
 
 ```bash
 # Login to MySQL

@@ -1,52 +1,372 @@
-# values.yaml
+# Production-Ready Helm Values
+# This file contains configuration for the Student Portal application
 
 namespace: student-portal
+environment: production  # development, staging, production
+
+# Global configuration
 global:
   host: student-portal.giize.com
+  domain: giize.com
+  projectName: student-portal
+  environment: production
+  
+  # Image pull secrets for private registries
+  imagePullSecrets: []
+    # - name: ecr-registry-secret
+  
+  # Pod security context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  
+  # Container security context
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+# Backend Service Configuration
 backend:
-  replicaCount: 1
+  # Deployment settings
+  enabled: true
+  replicaCount: 3
+  
+  # Image configuration
   image:
-    repository: arsenet10/student-portal-backend
-    tag: "3cb2cd5dab457c5cb2cd656d2ca371a0d6a230e1"
+    registry: "123456789.dkr.ecr.us-east-2.amazonaws.com"  # Change to your ECR registry
+    repository: "student-portal/backend"
+    tag: "latest"  # Override via CI/CD
     pullPolicy: IfNotPresent
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 5000
+    targetPort: 5000
+    annotations: {}
+  
+  # Ingress for direct backend access (for internal APIs)
+  ingress:
+    enabled: false
+  
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Environment variables
   env:
     nodeEnv: production
     port: 5000
-    dbHost: portal-db.cwhdtq5zkyxh.us-east-2.rds.amazonaws.com
+    logLevel: info
+    corsEnabled: "true"
+    
+    # Database configuration (use RDS endpoint from Terraform)
+    dbHost: "terraform-output-rds-endpoint"  # Override via CI/CD
     dbPort: 3306
     dbUser: admin
     dbName: student_app
-    jwtExpire: "15d" # <--- this is what becomes JWT_EXPIRE
-  secret:
-    dbPassword: "admin12345"
-    jwtSecret: "houston2016"
+    
+    # JWT configuration
+    jwtExpire: "15d"
+    
+    # API configuration
+    apiTimeout: 30000
+    maxRequestSize: 10mb
+  
+  # Secrets (stored in AWS Secrets Manager)
+  secrets:
+    dbPasswordRef: "student-portal/db-password"
+    jwtSecretRef: "student-portal/jwt-secret"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 5000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 5000
+    initialDelaySeconds: 20
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 2
+  
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  
+  # NodeSelector and Affinity
+  nodeSelector: {}
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - student-portal-backend
+            topologyKey: kubernetes.io/hostname
+  
+  # Tolerations
+  tolerations: []
+  
+  # Monitoring
+  monitoring:
+    enabled: true
+    prometheusPort: 9090
+
+# Frontend Service Configuration
 frontend:
-  replicaCount: 1
+  # Deployment settings
+  enabled: true
+  replicaCount: 2
+  
+  # Image configuration
   image:
-    repository: arsenet10/student-portal-frontend
-    tag: "3cb2cd5dab457c5cb2cd656d2ca371a0d6a230e1"
+    registry: "123456789.dkr.ecr.us-east-2.amazonaws.com"  # Change to your ECR registry
+    repository: "student-portal/frontend"
+    tag: "latest"  # Override via CI/CD
     pullPolicy: IfNotPresent
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+    annotations: {}
+  
+  # Resource limits and requests
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+  
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 2
+  
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  
+  # NodeSelector and Affinity
+  nodeSelector: {}
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - student-portal-frontend
+            topologyKey: kubernetes.io/hostname
+  
+  # Tolerations
+  tolerations: []
+
+# Ingress Configuration
 ingress:
   enabled: true
   className: nginx
+  
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  
+  # TLS configuration
   tls:
     enabled: true
     secretName: student-portal-tls
-    clusterIssuer: letsencrypt-prod # existing, working ClusterIssuer
+    clusterIssuer: letsencrypt-prod
+    certManager: true
+  
+  # Hosts configuration
   hosts:
     - host: student-portal.giize.com
       paths:
         - path: /
           pathType: Prefix
-          service:
-            name: student-portal-frontend
-            port: 80
+          backend:
+            service:
+              name: student-portal-frontend
+              port:
+                number: 80
         - path: /api
           pathType: Prefix
-          service:
-            name: student-portal-backend
-            port: 5000
-service:
-  type: ClusterIP
-httpRoute:
-  enabled: false
+          backend:
+            service:
+              name: student-portal-backend
+              port:
+                number: 5000
+        - path: /api/v1
+          pathType: Prefix
+          backend:
+            service:
+              name: student-portal-backend
+              port:
+                number: 5000
+
+# Network Policy
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 5000
+        - protocol: TCP
+          port: 3000
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 3306
+
+# RBAC Configuration
+rbac:
+  enabled: true
+  serviceAccountName: student-portal-sa
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false  # Enable if cluster has PSP
+  name: student-portal-psp
+
+# Monitoring and Observability
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    interval: 30s
+  jaeger:
+    enabled: false
+    agentHost: jaeger-agent
+    agentPort: 6831
+
+# Certificate Management
+certManager:
+  enabled: true
+  issuer:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+
+# Service Monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+
+# Horizontal Pod Autoscaler
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+# Pod Disruption Budgets
+disruptionBudgets:
+  enabled: true
+  backend:
+    minAvailable: 2
+  frontend:
+    minAvailable: 1
+
+# Backup Configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: 30
+
+# Logging
+logging:
+  enabled: true
+  level: info
+  format: json
+  elasticsearch:
+    enabled: false
+    host: elasticsearch
+    port: 9200
+
+# Tracing
+tracing:
+  enabled: true
+  jaeger:
+    enabled: false
+  openTelemetry:
+    enabled: false
